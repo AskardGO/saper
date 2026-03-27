@@ -130,10 +130,11 @@ export function createInitialState(difficulty, player1Id, player2Id) {
  * @param {number} c
  */
 export function applyMove(state, userId, action, r, c) {
+  const uid = Number(userId);
   if (state.status !== 'playing') {
     return { ok: false, error: 'Игра уже завершена' };
   }
-  if (state.currentTurnUserId !== userId) {
+  if (state.currentTurnUserId !== uid) {
     return { ok: false, error: 'Сейчас не ваш ход' };
   }
   const { width, height } = state;
@@ -147,7 +148,7 @@ export function applyMove(state, userId, action, r, c) {
     }
     state.flagged[r][c] = !state.flagged[r][c];
     state.currentTurnUserId =
-      state.player1Id === userId ? state.player2Id : state.player1Id;
+      state.player1Id === uid ? state.player2Id : state.player1Id;
     return { ok: true, state };
   }
 
@@ -166,7 +167,7 @@ export function applyMove(state, userId, action, r, c) {
   if (mines[r][c]) {
     state.revealed[r][c] = true;
     state.status = 'finished';
-    state.winnerId = state.player1Id === userId ? state.player2Id : state.player1Id;
+    state.winnerId = state.player1Id === uid ? state.player2Id : state.player1Id;
     return { ok: true, state, exploded: [r, c] };
   }
 
@@ -175,17 +176,18 @@ export function applyMove(state, userId, action, r, c) {
   const left = countSafeUnrevealed(mines, state.revealed);
   if (left === 0) {
     state.status = 'finished';
-    state.winnerId = userId;
+    state.winnerId = uid;
     return { ok: true, state, win: true };
   }
 
   state.currentTurnUserId =
-    state.player1Id === userId ? state.player2Id : state.player1Id;
+    state.player1Id === uid ? state.player2Id : state.player1Id;
   return { ok: true, state };
 }
 
 /** Публичное представление для клиента (мины скрыты до конца игры, кроме подорванной клетки) */
 export function publicGameView(state, viewerId) {
+  const vid = Number(viewerId);
   const h = state.height;
   const w = state.width;
   const mines = state.mines;
@@ -225,7 +227,7 @@ export function publicGameView(state, viewerId) {
     height: h,
     cells,
     currentTurnUserId: state.currentTurnUserId,
-    yourTurn: state.currentTurnUserId === viewerId,
+    yourTurn: state.currentTurnUserId === vid,
     status: state.status,
     winnerId: state.winnerId,
     player1Id: state.player1Id,

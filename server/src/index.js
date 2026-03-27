@@ -10,6 +10,7 @@ import {
   authMiddleware,
   signToken,
   verifyToken,
+  userIdFromPayload,
   hashPassword,
   verifyPassword,
 } from './auth.js';
@@ -121,7 +122,9 @@ let io = null;
 
 function emitToUser(userId, event, payload) {
   if (!io) return;
-  io.to(`user:${userId}`).emit(event, payload);
+  const id = Number(userId);
+  if (!Number.isFinite(id)) return;
+  io.to(`user:${id}`).emit(event, payload);
 }
 
 function notifyUser(userId, payload) {
@@ -421,7 +424,11 @@ function socketAuth(socket, next) {
   if (!payload) {
     return next(new Error('unauthorized'));
   }
-  socket.userId = payload.sub;
+  const id = userIdFromPayload(payload.sub);
+  if (id == null) {
+    return next(new Error('unauthorized'));
+  }
+  socket.userId = id;
   socket.username = payload.username;
   next();
 }
@@ -429,7 +436,7 @@ function socketAuth(socket, next) {
 io.use(socketAuth);
 
 io.on('connection', (socket) => {
-  socket.join(`user:${socket.userId}`);
+  socket.join(`user:${Number(socket.userId)}`);
 
   socket.on('game:leave', (gameId) => {
     if (typeof gameId === 'string') {

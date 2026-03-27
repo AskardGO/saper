@@ -12,6 +12,12 @@ export function verifyPassword(password, hash) {
   return bcrypt.compareSync(password, hash);
 }
 
+/** JWT часто отдаёт sub строкой — везде приводим к числу */
+export function userIdFromPayload(sub) {
+  const n = Number(sub);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 export function signToken(userId, username) {
   return jwt.sign({ sub: userId, username }, JWT_SECRET, { expiresIn: '7d' });
 }
@@ -34,6 +40,10 @@ export function authMiddleware(req, res, next) {
   if (!payload) {
     return res.status(401).json({ error: 'Недействительный токен' });
   }
-  req.user = { id: payload.sub, username: payload.username };
+  const id = userIdFromPayload(payload.sub);
+  if (id == null) {
+    return res.status(401).json({ error: 'Недействительный токен' });
+  }
+  req.user = { id, username: payload.username };
   next();
 }

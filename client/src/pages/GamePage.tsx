@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { fetchGame, fetchMe, type GameView } from '../api';
+import { getGameAudio } from '../gameAudio';
 import { useSocket } from '../SocketContext';
 
 type GameUpdatePayload = {
@@ -104,12 +105,14 @@ export default function GamePage() {
 
   function onCellClick(r: number, c: number) {
     setError(null);
+    getGameAudio().playClick();
     sendMove('reveal', r, c);
   }
 
   function onCellContext(e: React.MouseEvent, r: number, c: number) {
     e.preventDefault();
     setError(null);
+    getGameAudio().playClick();
     sendMove('flag', r, c);
   }
 

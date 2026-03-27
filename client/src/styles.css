@@ -58,6 +58,25 @@ a:hover {
   margin-bottom: 1.5rem;
 }
 
+.top-bar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.audio-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.audio-btn {
+  font-size: 0.85rem;
+  padding: 0.35rem 0.65rem;
+}
+
 .logo {
   font-weight: 700;
   font-size: 1.25rem;
