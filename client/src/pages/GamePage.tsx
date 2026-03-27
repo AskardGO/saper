@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import type { Socket } from 'socket.io-client';
 import { fetchGame, fetchMe, type GameView } from '../api';
-import { createGameSocket } from '../socket';
+import { useSocket } from '../SocketContext';
+
+type GameUpdatePayload = {
+  gameId?: string;
+  view?: GameView;
+};
 
 export default function GamePage() {
   const { gameId } = useParams<{ gameId: string }>();
+  const { socket } = useSocket();
   const [view, setView] = useState<GameView | null>(null);
   const [gameStatus, setGameStatus] = useState<'active' | 'finished' | null>(
     null,
@@ -14,7 +19,11 @@ export default function GamePage() {
   const [p2, setP2] = useState<string>('');
   const [myId, setMyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const socketRef = useRef<Socket | null>(null);
+  const gameIdRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    gameIdRef.current = gameId;
+  }, [gameId]);
 
   useEffect(() => {
     if (!gameId) return;
@@ -42,47 +51,45 @@ export default function GamePage() {
   }, [gameId]);
 
   useEffect(() => {
-    if (!gameId || gameStatus !== 'active') return;
-    let socket: Socket | null = null;
-    let cancelled = false;
+    if (!gameId || !socket || gameStatus !== 'active') return;
 
-    socket = createGameSocket();
-    socketRef.current = socket;
-
-    socket.on('connect_error', () => {
-      if (!cancelled) setError('Нет соединения с сервером');
-    });
-
-    socket.on('game:update', (payload: { view: GameView }) => {
-      if (payload?.view) {
+    const onUpdate = (payload: GameUpdatePayload) => {
+      if (payload.gameId && payload.gameId !== gameIdRef.current) return;
+      if (payload.view) {
         setView(payload.view);
         if (payload.view.status === 'finished') {
           setGameStatus('finished');
         }
       }
-    });
+    };
 
-    socket.emit(
-      'game:join',
-      gameId,
-      (res: { error?: string; view?: GameView }) => {
-        if (res?.error) setError(res.error);
-        if (res?.view) setView(res.view);
-      },
-    );
+    const joinGame = () => {
+      socket.emit(
+        'game:join',
+        gameId,
+        (res: { error?: string; view?: GameView }) => {
+          if (res?.error) setError(res.error);
+          if (res?.view) setView(res.view);
+        },
+      );
+    };
+
+    socket.on('game:update', onUpdate);
+    socket.on('connect', joinGame);
+    if (socket.connected) joinGame();
 
     return () => {
-      cancelled = true;
-      socket?.disconnect();
-      socketRef.current = null;
+      socket.off('game:update', onUpdate);
+      socket.off('connect', joinGame);
+      socket.emit('game:leave', gameId);
     };
-  }, [gameId, gameStatus]);
+  }, [gameId, gameStatus, socket]);
 
   function sendMove(action: 'reveal' | 'flag', r: number, c: number) {
-    if (!gameId || !socketRef.current || !view) return;
+    if (!gameId || !socket || !view) return;
     if (!view.yourTurn || view.status !== 'active') return;
 
-    socketRef.current.emit(
+    socket.emit(
       'game:move',
       { gameId, action, r, c },
       (res: { error?: string; view?: GameView }) => {

@@ -1,5 +1,6 @@
 import { Link, Navigate, Route, Routes } from 'react-router-dom';
 import { getToken } from './api';
+import { SocketProvider } from './SocketContext';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Home from './pages/Home';
@@ -9,7 +10,7 @@ function Protected({ children }: { children: React.ReactNode }) {
   if (!getToken()) {
     return <Navigate to="/login" replace />;
   }
-  return <>{children}</>;
+  return <SocketProvider>{children}</SocketProvider>;
 }
 
 export default function App() {

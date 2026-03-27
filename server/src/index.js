@@ -116,6 +116,18 @@ app.get('/api/difficulties', (_req, res) => {
   });
 });
 
+/** @type {import('socket.io').Server | null} */
+let io = null;
+
+function emitToUser(userId, event, payload) {
+  if (!io) return;
+  io.to(`user:${userId}`).emit(event, payload);
+}
+
+function notifyUser(userId, payload) {
+  emitToUser(userId, 'notify', payload);
+}
+
 // --- Friends ---
 app.get('/api/friends', authMiddleware, (req, res) => {
   const uid = req.user.id;
@@ -194,6 +206,15 @@ app.post('/api/friends/request', authMiddleware, (req, res) => {
     db.prepare(
       'UPDATE friend_requests SET status = ?, created_at = datetime(\'now\') WHERE id = ?',
     ).run('pending', existing.id);
+    const fromUser = db
+      .prepare('SELECT username FROM users WHERE id = ?')
+      .get(req.user.id);
+    notifyUser(peer.id, {
+      type: 'friend_request',
+      title: 'Заявка в друзья',
+      message: `${fromUser.username} снова отправил(а) заявку`,
+      data: { requestId: existing.id },
+    });
     return res.json({ ok: true, message: 'Заявка отправлена снова' });
   }
 
@@ -214,9 +235,20 @@ app.post('/api/friends/request', authMiddleware, (req, res) => {
   }
 
   try {
-    db.prepare(
-      'INSERT INTO friend_requests (from_id, to_id, status) VALUES (?, ?, ?)',
-    ).run(req.user.id, peer.id, 'pending');
+    const info = db
+      .prepare(
+        'INSERT INTO friend_requests (from_id, to_id, status) VALUES (?, ?, ?)',
+      )
+      .run(req.user.id, peer.id, 'pending');
+    const fromUser = db
+      .prepare('SELECT username FROM users WHERE id = ?')
+      .get(req.user.id);
+    notifyUser(peer.id, {
+      type: 'friend_request',
+      title: 'Заявка в друзья',
+      message: `${fromUser.username} хочет добавить вас в друзья`,
+      data: { requestId: Number(info.lastInsertRowid) },
+    });
     return res.json({ ok: true });
   } catch (e) {
     console.error(e);
@@ -234,6 +266,15 @@ app.post('/api/friends/accept/:id', authMiddleware, (req, res) => {
     'accepted',
     id,
   );
+  const accepter = db
+    .prepare('SELECT username FROM users WHERE id = ?')
+    .get(req.user.id);
+  notifyUser(row.from_id, {
+    type: 'friend_accepted',
+    title: 'Друзья',
+    message: `${accepter.username} принял(а) вашу заявку`,
+    data: {},
+  });
   res.json({ ok: true });
 });
 
@@ -244,6 +285,15 @@ app.post('/api/friends/decline/:id', authMiddleware, (req, res) => {
     return res.status(404).json({ error: 'Заявка не найдена' });
   }
   db.prepare('DELETE FROM friend_requests WHERE id = ?').run(id);
+  const decliner = db
+    .prepare('SELECT username FROM users WHERE id = ?')
+    .get(req.user.id);
+  notifyUser(row.from_id, {
+    type: 'friend_declined',
+    title: 'Заявка в друзья',
+    message: `${decliner.username} отклонил(а) заявку`,
+    data: {},
+  });
   res.json({ ok: true });
 });
 
@@ -286,6 +336,17 @@ app.post('/api/games/invite', authMiddleware, (req, res) => {
     `INSERT INTO games (id, player1_id, player2_id, difficulty, state_json, status)
      VALUES (?, ?, ?, ?, ?, 'active')`,
   ).run(gameId, req.user.id, pid, difficulty, JSON.stringify(state));
+
+  const host = db
+    .prepare('SELECT username FROM users WHERE id = ?')
+    .get(req.user.id);
+  const diffLabel = DIFFICULTIES[difficulty]?.label || difficulty;
+  notifyUser(pid, {
+    type: 'game_invite',
+    title: 'Приглашение в игру',
+    message: `${host.username} пригласил(а) вас (${diffLabel})`,
+    data: { gameId, difficulty },
+  });
 
   res.json({ gameId, state: publicGameView(state, req.user.id) });
 });
@@ -343,7 +404,7 @@ if (isProd) {
 }
 
 const server = http.createServer(app);
-const io = new Server(server, {
+io = new Server(server, {
   cors: isProd
     ? { origin: true, methods: ['GET', 'POST'] }
     : { origin: CLIENT_ORIGIN, methods: ['GET', 'POST'] },
@@ -368,6 +429,14 @@ function socketAuth(socket, next) {
 io.use(socketAuth);
 
 io.on('connection', (socket) => {
+  socket.join(`user:${socket.userId}`);
+
+  socket.on('game:leave', (gameId) => {
+    if (typeof gameId === 'string') {
+      socket.leave(`game:${gameId}`);
+    }
+  });
+
   socket.on('game:join', (gameId, cb) => {
     if (typeof gameId !== 'string' || typeof cb !== 'function') return;
     const row = db.prepare('SELECT * FROM games WHERE id = ?').get(gameId);
@@ -417,6 +486,7 @@ io.on('connection', (socket) => {
 
     const room = io.sockets.adapter.rooms.get(`game:${gameId}`);
     const updateMeta = {
+      gameId,
       lastMove: { userId: uid, action, r: Number(r), c: Number(c) },
     };
     if (room) {
@@ -431,6 +501,38 @@ io.on('connection', (socket) => {
       }
     }
     cb({ ok: true, view: publicGameView(state, uid) });
+
+    if (state.status === 'playing') {
+      notifyUser(state.currentTurnUserId, {
+        type: 'game_turn',
+        title: 'Сапёр',
+        message: 'Ваш ход',
+        data: { gameId },
+      });
+    } else if (state.status === 'finished') {
+      notifyUser(row.player1_id, {
+        type: 'game_finished',
+        title: 'Партия окончена',
+        message:
+          state.winnerId === row.player1_id
+            ? 'Вы выиграли'
+            : state.winnerId === row.player2_id
+              ? 'Вы проиграли'
+              : 'Игра завершена',
+        data: { gameId, winnerId: state.winnerId },
+      });
+      notifyUser(row.player2_id, {
+        type: 'game_finished',
+        title: 'Партия окончена',
+        message:
+          state.winnerId === row.player2_id
+            ? 'Вы выиграли'
+            : state.winnerId === row.player1_id
+              ? 'Вы проиграли'
+              : 'Игра завершена',
+        data: { gameId, winnerId: state.winnerId },
+      });
+    }
   });
 
   socket.on('disconnect', () => {

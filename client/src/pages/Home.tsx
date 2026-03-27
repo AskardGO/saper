@@ -1,5 +1,6 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { requestNotificationPermission } from '../SocketContext';
 import {
   acceptFriend,
   declineFriend,
@@ -31,8 +32,11 @@ export default function Home() {
   const [inviteDifficulty, setInviteDifficulty] = useState('easy');
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [notifPerm, setNotifPerm] = useState(
+    typeof Notification !== 'undefined' ? Notification.permission : 'denied',
+  );
 
-  async function load() {
+  const load = useCallback(async () => {
     const [u, f, d, g] = await Promise.all([
       fetchMe(),
       fetchFriends(),
@@ -45,10 +49,23 @@ export default function Home() {
     setOutgoing(f.outgoing.map((o) => ({ id: o.id, username: o.username })));
     setDifficulties(d.difficulties);
     setGames(g.games);
-  }
+  }, []);
+
+  const loadRef = useRef(load);
+  loadRef.current = load;
 
   useEffect(() => {
     load().catch((e) => setErr(e instanceof Error ? e.message : 'Ошибка загрузки'));
+  }, [load]);
+
+  useEffect(() => {
+    const handler = () => {
+      loadRef.current().catch((e) =>
+        setErr(e instanceof Error ? e.message : 'Ошибка загрузки'),
+      );
+    };
+    window.addEventListener('saper:refresh', handler);
+    return () => window.removeEventListener('saper:refresh', handler);
   }, []);
 
   async function onAddFriend(e: FormEvent) {
@@ -100,9 +117,22 @@ export default function Home() {
       <section className="card">
         <div className="row spread">
           <h1>Привет, {me?.username}</h1>
-          <button type="button" className="ghost" onClick={logout}>
-            Выйти
-          </button>
+          <span className="row header-actions">
+            {notifPerm !== 'granted' && (
+              <button
+                type="button"
+                className="ghost small-btn"
+                onClick={() => {
+                  requestNotificationPermission().then((p) => setNotifPerm(p));
+                }}
+              >
+                Включить уведомления
+              </button>
+            )}
+            <button type="button" className="ghost" onClick={logout}>
+              Выйти
+            </button>
+          </span>
         </div>
         <p className="muted">
           Игра только онлайн: вы и друг ходите по очереди (открытие клетки или
