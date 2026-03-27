@@ -1,0 +1,15 @@
+# https://render.com/docs/blueprint-spec
+# После пуша в GitHub: New → Blueprint → выбрать репозиторий
+services:
+  - type: web
+    name: saper
+    runtime: node
+    plan: free
+    buildCommand: npm install --prefix server && npm install --prefix client && npm run build --prefix client
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
