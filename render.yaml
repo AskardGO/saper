@@ -1,5 +1,10 @@
 # https://render.com/docs/blueprint-spec
 # После пуша в GitHub: New → Blueprint → выбрать репозиторий
+#
+# SQLite на бесплатном Web Service: файловая система эфемерная — после деплоя/сна
+# пользователи пропадают, вход даёт «неверный пароль» (аккаунта уже нет в БД).
+# Варианты: платный инстанс + Persistent Disk и DB_PATH=/data/data.db, или внешняя БД.
+#
 services:
   - type: web
     name: saper

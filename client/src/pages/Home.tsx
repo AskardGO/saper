@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { requestNotificationPermission } from '../SocketContext';
+import { requestNotificationPermission, useSocket } from '../SocketContext';
 import {
   acceptFriend,
   declineFriend,
@@ -19,6 +19,7 @@ import {
 } from '../api';
 
 export default function Home() {
+  const { pushInfoToast } = useSocket();
   const [me, setMe] = useState<User | null>(null);
   const [friends, setFriends] = useState<FriendEntry[]>([]);
   const [incoming, setIncoming] = useState<PendingIn[]>([]);
@@ -105,8 +106,12 @@ export default function Home() {
     setMsg(null);
     if (invitePeerId === '') return;
     try {
-      const { gameId } = await inviteGame(Number(invitePeerId), inviteDifficulty);
-      window.location.href = `/game/${gameId}`;
+      await inviteGame(Number(invitePeerId), inviteDifficulty);
+      pushInfoToast(
+        'Вызов отправлен',
+        'Ждём, пока соперник примет бой нажатием «Принять»',
+      );
+      await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Не удалось создать игру');
     }
@@ -244,12 +249,23 @@ export default function Home() {
           <ul className="list games">
             {games.map((g) => (
               <li key={g.id}>
-                <Link to={`/game/${g.id}`}>
-                  {g.difficulty} ·{' '}
-                  {g.status === 'active' ? 'идёт' : 'завершена'}
-                  {g.winnerId != null && ` · победитель #${g.winnerId}`}
-                </Link>
-                <span className="muted small"> {g.createdAt}</span>
+                {g.status === 'cancelled' ? (
+                  <span className="muted">
+                    {g.difficulty} · отменена
+                    <span className="muted small"> {g.createdAt}</span>
+                  </span>
+                ) : (
+                  <>
+                    <Link to={`/game/${g.id}`}>
+                      {g.difficulty} ·{' '}
+                      {g.status === 'pending' && 'ждёт ответа'}
+                      {g.status === 'active' && 'идёт'}
+                      {g.status === 'finished' && 'завершена'}
+                      {g.winnerId != null && ` · победитель #${g.winnerId}`}
+                    </Link>
+                    <span className="muted small"> {g.createdAt}</span>
+                  </>
+                )}
               </li>
             ))}
           </ul>

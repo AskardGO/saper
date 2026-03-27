@@ -133,17 +133,31 @@ export type GameView = {
 };
 
 export async function inviteGame(peerId: number, difficulty: string) {
-  return request<{ gameId: string; state: GameView }>('/api/games/invite', {
+  return request<{ gameId: string; status: string }>('/api/games/invite', {
     method: 'POST',
     body: JSON.stringify({ peerId, difficulty }),
   });
+}
+
+export async function acceptGameInvite(gameId: string) {
+  return request<{ ok: boolean; gameId: string; status: string }>(
+    `/api/games/${encodeURIComponent(gameId)}/accept`,
+    { method: 'POST' },
+  );
+}
+
+export async function declineGameInvite(gameId: string) {
+  return request<{ ok: boolean }>(
+    `/api/games/${encodeURIComponent(gameId)}/decline`,
+    { method: 'POST' },
+  );
 }
 
 export async function fetchGame(gameId: string) {
   return request<{
     gameId: string;
     view: GameView;
-    status: 'active' | 'finished';
+    status: 'pending' | 'active' | 'finished';
     player1Username?: string;
     player2Username?: string;
   }>(`/api/games/${encodeURIComponent(gameId)}`);

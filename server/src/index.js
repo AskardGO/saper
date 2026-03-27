@@ -337,7 +337,7 @@ app.post('/api/games/invite', authMiddleware, (req, res) => {
   const state = createInitialState(difficulty, req.user.id, pid);
   db.prepare(
     `INSERT INTO games (id, player1_id, player2_id, difficulty, state_json, status)
-     VALUES (?, ?, ?, ?, ?, 'active')`,
+     VALUES (?, ?, ?, ?, ?, 'pending')`,
   ).run(gameId, req.user.id, pid, difficulty, JSON.stringify(state));
 
   const host = db
@@ -346,12 +346,56 @@ app.post('/api/games/invite', authMiddleware, (req, res) => {
   const diffLabel = DIFFICULTIES[difficulty]?.label || difficulty;
   notifyUser(pid, {
     type: 'game_invite',
-    title: 'Приглашение в игру',
-    message: `${host.username} пригласил(а) вас (${diffLabel})`,
-    data: { gameId, difficulty },
+    title: 'Вызов на бой',
+    message: `${host.username} — ${diffLabel}`,
+    data: { gameId, difficulty, fromUsername: host.username },
   });
 
-  res.json({ gameId, state: publicGameView(state, req.user.id) });
+  res.json({ gameId, status: 'pending' });
+});
+
+app.post('/api/games/:id/accept', authMiddleware, (req, res) => {
+  const row = db.prepare('SELECT * FROM games WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Игра не найдена' });
+  if (Number(row.player2_id) !== Number(req.user.id)) {
+    return res.status(403).json({ error: 'Принять может только приглашённый игрок' });
+  }
+  if (row.status !== 'pending') {
+    return res.status(409).json({ error: 'Приглашение уже недействительно' });
+  }
+  db.prepare(`UPDATE games SET status = 'active' WHERE id = ?`).run(row.id);
+  const accepter = db
+    .prepare('SELECT username FROM users WHERE id = ?')
+    .get(req.user.id);
+  notifyUser(row.player1_id, {
+    type: 'game_invite_accepted',
+    title: 'Вызов принят',
+    message: `${accepter.username} принял(а) бой`,
+    data: { gameId: row.id },
+  });
+  res.json({ ok: true, gameId: row.id, status: 'active' });
+});
+
+app.post('/api/games/:id/decline', authMiddleware, (req, res) => {
+  const row = db.prepare('SELECT * FROM games WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Игра не найдена' });
+  if (Number(row.player2_id) !== Number(req.user.id)) {
+    return res.status(403).json({ error: 'Отклонить может только приглашённый игрок' });
+  }
+  if (row.status !== 'pending') {
+    return res.status(409).json({ error: 'Приглашение уже недействительно' });
+  }
+  db.prepare(`UPDATE games SET status = 'cancelled' WHERE id = ?`).run(row.id);
+  const decliner = db
+    .prepare('SELECT username FROM users WHERE id = ?')
+    .get(req.user.id);
+  notifyUser(row.player1_id, {
+    type: 'game_invite_declined',
+    title: 'Вызов отклонён',
+    message: `${decliner.username} отклонил(а) бой`,
+    data: { gameId: row.id },
+  });
+  res.json({ ok: true });
 });
 
 app.get('/api/games', authMiddleware, (req, res) => {
@@ -378,6 +422,9 @@ app.get('/api/games', authMiddleware, (req, res) => {
 app.get('/api/games/:id', authMiddleware, (req, res) => {
   const row = db.prepare('SELECT * FROM games WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Игра не найдена' });
+  if (row.status === 'cancelled') {
+    return res.status(410).json({ error: 'Игра отменена' });
+  }
   const uid = req.user.id;
   if (row.player1_id !== uid && row.player2_id !== uid) {
     return res.status(403).json({ error: 'Нет доступа' });
